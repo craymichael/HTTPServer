@@ -1,0 +1,3 @@
+# Simple HTTP (GET) Server
+Compile using `gcc main.c -lpthread -o server`.
+Add the `DDEBUG` flag in the compilation string for debugging output.
