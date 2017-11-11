@@ -99,10 +99,11 @@ void* serve_http(void* unused)
 
 int main(int argc, char const *argv[])
 {
-    int socket_fd, client_socket_fd;
+    int socket_fd, client_socket_fd, result;
     struct sockaddr_in address;
     socklen_t addrlen = (socklen_t)sizeof(address);
     pthread_t threads[N_THREADS];
+    fd_set readfds;
 
     // Register Ctrl-c handler
     signal(SIGINT, intHandler);
@@ -164,9 +165,30 @@ int main(int argc, char const *argv[])
     }
     DPRINT("Threads created.\n");
 
+    // Setup var to hold fds to be watched
+    FD_ZERO(&readfds);
+    FD_SET(socket_fd, &readfds);
+
     // Main loop
     while (run_status)
     {
+        /* Check if I/O is available in readfds (client_socket_fd...)
+         *   nfds    socket_fd+1: Highest # fd + 1 (required)
+         *   readfds &readfds:    List of fds watched to see if chars available
+         *   ...     NULL:        Unused options
+         */
+        result = select(socket_fd+1, &readfds, NULL, NULL, NULL);
+        if (result < 0)
+        {
+            perror("Failed to select client_socket_fd");
+            exit(EXIT_FAILURE);
+        } else if (result == 0)
+        {
+            DPRINT("No data available.\n");
+            // No data
+            continue;
+        }
+
         /* Accept a socket connection from pending connections queue.
          *   sockfd    socket_fd: Socket fd
          *   addr      &address:  Host address struct
