@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
+#include <string.h>
 #include "queue.h"
 
 // Port to bind socket to
@@ -32,6 +33,9 @@
 static volatile int run_status = 1;
 // Thread pool queue (thread-safe)
 queue_t s_queue;
+// HTTP Response template
+const char* http_tmplt = "HTTP/1.0 %s\nContent-Type: text/html\nContent-Length: %u\n\n%s";
+char* empty = "";
 
 
 // Ctrl-c handler
@@ -47,6 +51,7 @@ void* serve_http(void* unused)
     char rx_buffer[RX_BUF_SIZE] = {0},
          tx_buffer[TX_BUF_SIZE] = "HTTP/1.0 200 OK\nContent-Type: text/html\nContent-Length: 4\n\nTEST";
     int client_socket_fd, rx_size, tx_size;
+    char* pcha, *pchb, *req_typ, *req_file, *req_prot;
 
     DPRINT("serve_http thread running.\n");
 
@@ -57,6 +62,7 @@ void* serve_http(void* unused)
             continue;
 
         DPRINT("Processing HTTP request.\n");
+
         /* Receive socket message
          *   sockfd client_socket_fd: Client socket fd
          *   buf    rx_buffer:        The receive buffer
@@ -69,6 +75,39 @@ void* serve_http(void* unused)
             exit(EXIT_FAILURE);
         }
         DPRINT("Successfully received client's message:\n%s\n", rx_buffer);
+
+        // Parse message
+        req_typ = empty;
+        req_file = empty;
+        req_prot = empty;
+        pcha = strtok(rx_buffer, "\n");
+
+        // Retrieve request type, file URI, and protocol
+        if (pcha != NULL) {
+            if ((pchb = strtok(pcha, " ")) != NULL) {
+                req_typ = pchb;
+                if ((pchb = strtok(NULL, " ")) != NULL) {
+                    req_file = pchb;
+                    if ((pchb = strtok(NULL, " ")) != NULL)
+                        req_prot = pchb;
+                }
+            }
+        }
+
+        // Respond to non-GET messages with 405 Method Not Allowed
+        if (strcmp(req_typ, "GET") != 0 ||
+            strcmp(req_prot, "HTTP/1.0") != 0 ||
+            strcmp(req_prot, "HTTP/1.1") != 0)
+        {
+            sprintf(tx_buffer, http_tmplt, "405 Method Not Allowed\nAllow: GET",
+                    12, "Not allowed!");
+        } else if (access(req_file, F_OK) == -1)
+        {
+            // Respond to unknown pages/files with 404 Not Found
+            sprintf(tx_buffer, http_tmplt, "404 Not Found", 3, "<http><h1>404</h1></http>");
+        }
+            // Respond to private pages/files with 403 Forbidden
+            // Otherwise respond with 200 OK w/ HTML file contents
 
         /* Send message to socket
          *   sockfd client_socket_fd: Client socket fd
