@@ -38,16 +38,14 @@ int queue_empty(queue_t* queue)
 }
 
 
-void queue_push(queue_t* queue, int data)
+int queue_push(queue_t* queue, int data)
 {
     // Get lock
     pthread_mutex_lock(&q_lock);
 
     if (queue->size == queue->capacity)
-    {
-        fprintf(stderr, "Queue is full, cannot push.");
-        exit(EXIT_FAILURE);
-    }
+        return -1;
+
     // Increase size
     queue->size += 1;
     // Append data
@@ -60,6 +58,8 @@ void queue_push(queue_t* queue, int data)
 
     // Release lock
     pthread_mutex_unlock(&q_lock);
+
+    return 0;
 }
 
 
@@ -71,10 +71,8 @@ int queue_pop(queue_t* queue)
     pthread_mutex_lock(&q_lock);
 
     if (queue->size == 0)
-    {
-        fprintf(stderr, "Queue is empty, cannot pop.");
-        exit(EXIT_FAILURE);
-    }
+        return -1;
+
     // Decrement size
     queue->size -= 1;
     // Pop data

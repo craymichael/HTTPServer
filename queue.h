@@ -14,7 +14,7 @@ typedef struct queue_t
 } queue_t;
 
 void queue_create(queue_t* queue, unsigned int size);
-void queue_push(queue_t* queue, int data);
+int  queue_push(queue_t* queue, int data);
 int  queue_pop(queue_t* queue);
 void queue_destroy(queue_t* queue);
 int  queue_full(queue_t* queue);

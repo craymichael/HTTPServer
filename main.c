@@ -41,46 +41,52 @@ void intHandler(int dummy)
 }
 
 
-void* serve_http(void* client_socket_fd_ptr)
+void* serve_http(void* unused)
 {
     char rx_buffer[RX_BUF_SIZE] = {0},
          tx_buffer[TX_BUF_SIZE] = "HTTP/1.0 200 OK\nContent-Type: text/html\nContent-Length: 4\n\nTEST";
-    int client_socket_fd = *(int*)client_socket_fd_ptr;
-    int rx_size, tx_size;
+    int client_socket_fd, rx_size, tx_size;
 
-    /* Receive socket message
-     *   sockfd client_socket_fd: Client socket fd
-     *   buf    rx_buffer:        The receive buffer
-     *   len    RX_BUF_SIZE:      Size of receive buffer
-     *   flags  0:                No flags
-     */
-    if ((rx_size = recv(client_socket_fd, rx_buffer, RX_BUF_SIZE, 0)) < 0)
+    while (run_status)
     {
-        perror("Failed to read from client");
-        exit(EXIT_FAILURE);
-    }
-    DPRINT("Successfully received client's message:\n%s\n", rx_buffer);
+        // Check if work to do (requests available to process)
+        if ((client_socket_fd = queue_pop(&s_queue)) == -1)
+            continue;
 
-    /* Send message to socket
-     *   sockfd client_socket_fd: Client socket fd
-     *   buf    tx_buffer:        Transmit buffer
-     *   len    TX_BUF_SIZE:      Size of transmit buffer
-     *   flags  0:                No flags
-     */
-    if ((tx_size = send(client_socket_fd, tx_buffer, TX_BUF_SIZE, 0)) < 0)
-    {
-        perror("Failed to send to client");
-        exit(EXIT_FAILURE);
-    }
-    DPRINT("Successfully replied to client:\n%s\n", tx_buffer);
+        /* Receive socket message
+         *   sockfd client_socket_fd: Client socket fd
+         *   buf    rx_buffer:        The receive buffer
+         *   len    RX_BUF_SIZE:      Size of receive buffer
+         *   flags  0:                No flags
+         */
+        if ((rx_size = recv(client_socket_fd, rx_buffer, RX_BUF_SIZE, 0)) < 0)
+        {
+            perror("Failed to read from client");
+            exit(EXIT_FAILURE);
+        }
+        DPRINT("Successfully received client's message:\n%s\n", rx_buffer);
 
-    // Attempt to close client socket fd
-    if (close(client_socket_fd) < 0)
-    {
-        perror("Failed to close client socket fd");
-        exit(EXIT_FAILURE);
+        /* Send message to socket
+         *   sockfd client_socket_fd: Client socket fd
+         *   buf    tx_buffer:        Transmit buffer
+         *   len    TX_BUF_SIZE:      Size of transmit buffer
+         *   flags  0:                No flags
+         */
+        if ((tx_size = send(client_socket_fd, tx_buffer, TX_BUF_SIZE, 0)) < 0)
+        {
+            perror("Failed to send to client");
+            exit(EXIT_FAILURE);
+        }
+        DPRINT("Successfully replied to client:\n%s\n", tx_buffer);
+
+        // Attempt to close client socket fd
+        if (close(client_socket_fd) < 0)
+        {
+            perror("Failed to close client socket fd");
+            exit(EXIT_FAILURE);
+        }
+        DPRINT("Successfully closed connection to client.\n");
     }
-    DPRINT("Successfully closed connection to client.\n");
 
     pthread_exit(NULL);
 }
@@ -141,8 +147,18 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Create threads for pool
+    for (int i=0; i<N_THREADS; ++i)
+    {
+        if(pthread_create(&threads[i], NULL, serve_http, NULL))
+        {
+            perror("Failed to create thread");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     // Main loop
-    while(run_status)
+    while (run_status)
     {
         /* Accept a socket connection from pending connections queue.
          *   sockfd    socket_fd: Socket fd
@@ -159,6 +175,16 @@ int main(int argc, char const *argv[])
 
         // Add connection fd to queue
         queue_push(&s_queue, client_socket_fd);
+    }
+
+    // Join all threads
+    for (int i=0; i<N_THREADS; ++i)
+    {
+        if(pthread_join(threads[i], NULL))
+        {
+            perror("Failed to join thread");
+            exit(EXIT_FAILURE);
+        }
     }
 
     // Attempt to close server socket fd
