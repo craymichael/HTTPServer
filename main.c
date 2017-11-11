@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <pthread.h>
 
 // Port to bind socket to
 #define PORT        (8008)
@@ -22,13 +23,19 @@
 #endif
 
 
+void* serve_http(void* arg)
+{
+    char rx_buffer[RX_BUF_SIZE] = {0},
+         tx_buffer[TX_BUF_SIZE] = "HTTP/1.0 200 OK\nContent-Type: text/html\nContent-Length: 4\n\nTEST";
+
+}
+
+
 int main(int argc, char const *argv[])
 {
     int socket_fd, client_socket_fd, rx_size, tx_size;
     struct sockaddr_in address;
     socklen_t addrlen = (socklen_t)sizeof(address);
-    char rx_buffer[RX_BUF_SIZE] = {0},
-         tx_buffer[TX_BUF_SIZE] = "HTTP/1.0 200 OK\nContent-Type: text/html\nContent-Length: 4\n\nTEST";
 
     /* Create socket file descriptor
      *   Domain   AF_INET:     IPv4 address family
