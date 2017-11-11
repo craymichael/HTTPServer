@@ -11,16 +11,24 @@
 #define PORT        (8008)
 // Maximum queue length of pending connections
 #define BACKLOG     (5)
-// Receive buffer size
+// Receive/transmit buffer size
 #define RX_BUF_SIZE (2048)
+#define TX_BUF_SIZE (2048)
+
+#ifdef DEBUG
+#define DPRINT(...) {fprintf(stderr, __VA_ARGS__);}
+#else
+#define DPRINT(...)
+#endif
 
 
 int main(int argc, char const *argv[])
 {
-    int socket_fd, client_socket_fd, valread;
+    int socket_fd, client_socket_fd, rx_size, tx_size;
     struct sockaddr_in address;
     socklen_t addrlen = (socklen_t)sizeof(address);
-    char buffer[RX_BUF_SIZE] = {0};
+    char rx_buffer[RX_BUF_SIZE] = {0},
+         tx_buffer[TX_BUF_SIZE] = "HTTP/1.0 200 OK\nContent-Type: text/html\nContent-Length: 4\n\nTEST";
 
     /* Create socket file descriptor
      *   Domain   AF_INET:     IPv4 address family
@@ -29,7 +37,7 @@ int main(int argc, char const *argv[])
      */
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
-        perror("Failed to create socket fd.");
+        perror("Failed to create socket fd");
         exit(EXIT_FAILURE);
     }
 
@@ -50,7 +58,7 @@ int main(int argc, char const *argv[])
      */
     if (bind(socket_fd, (struct sockaddr*)&address, addrlen) < 0)
     {
-        perror("Failed to bind host address to socket.");
+        perror("Failed to bind host address to socket");
         exit(EXIT_FAILURE);
     }
 
@@ -60,7 +68,7 @@ int main(int argc, char const *argv[])
      */
     if (listen(socket_fd, BACKLOG) < 0)
     {
-        perror("Failed to listen on socket.");
+        perror("Failed to listen on socket");
         exit(EXIT_FAILURE);
     }
 
@@ -73,29 +81,52 @@ int main(int argc, char const *argv[])
          *   socklen_t &addrlen:  Size of address struct
          */
         if ((client_socket_fd = accept(socket_fd, (struct sockaddr*)&address,
-                                       &addrlen) < 0))
+                                       &addrlen)) < 0)
         {
-            perror("Failed to accept connection.");
+            perror("Failed to accept connection");
             exit(EXIT_FAILURE);
         }
+        DPRINT("Successfully connected to client.\n");
 
-        valread = read(client_socket_fd, buffer, RX_BUF_SIZE);
-        printf("%s\n", buffer);
-        //send(client_socket_fd, hello, strlen(hello), 0);
-        printf("Hello message sent\n");
+        /* Receive socket message
+         *   sockfd client_socket_fd: Client socket fd
+         *   buf    rx_buffer:        The receive buffer
+         *   len    RX_BUF_SIZE:      Size of receive buffer
+         *   flags  0:                No flags
+         */
+        if ((rx_size = recv(client_socket_fd, rx_buffer, RX_BUF_SIZE, 0)) < 0)
+        {
+            perror("Failed to read from client");
+            exit(EXIT_FAILURE);
+        }
+        DPRINT("Successfully received client's message:\n%s.\n", rx_buffer);
+
+        /* Send message to socket
+         *   sockfd client_socket_fd: Client socket fd
+         *   buf    tx_buffer:        Transmit buffer
+         *   len    TX_BUF_SIZE:      Size of transmit buffer
+         *   flags  0:                No flags
+         */
+        if ((tx_size = send(client_socket_fd, tx_buffer, TX_BUF_SIZE, 0)) < 0)
+        {
+            perror("Failed to send to client");
+            exit(EXIT_FAILURE);
+        }
+        DPRINT("Successfully replied to client:\n%s.\n", tx_buffer);
 
         // Attempt to close client socket fd
-        if(close(client_socket_fd) < 0)
+        if (close(client_socket_fd) < 0)
         {
-            perror("Failed to close client socket fd.");
+            perror("Failed to close client socket fd");
             exit(EXIT_FAILURE);
         }
+        DPRINT("Successfully closed connection to client.\n");
     }
 
     // Attempt to close server socket fd
     if (close(socket_fd) < 0)
     {
-        perror("Failed to close server socket fd.");
+        perror("Failed to close server socket fd");
         exit(EXIT_FAILURE);
     }
 
