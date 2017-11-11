@@ -37,6 +37,7 @@ queue_t s_queue;
 // Ctrl-c handler
 void intHandler(int dummy)
 {
+    DPRINT("Interrupt received.\n");
     run_status = 0;
 }
 
@@ -47,12 +48,15 @@ void* serve_http(void* unused)
          tx_buffer[TX_BUF_SIZE] = "HTTP/1.0 200 OK\nContent-Type: text/html\nContent-Length: 4\n\nTEST";
     int client_socket_fd, rx_size, tx_size;
 
+    DPRINT("serve_http thread running.\n");
+
     while (run_status)
     {
         // Check if work to do (requests available to process)
         if ((client_socket_fd = queue_pop(&s_queue)) == -1)
             continue;
 
+        DPRINT("Processing HTTP request.\n");
         /* Receive socket message
          *   sockfd client_socket_fd: Client socket fd
          *   buf    rx_buffer:        The receive buffer
@@ -88,6 +92,7 @@ void* serve_http(void* unused)
         DPRINT("Successfully closed connection to client.\n");
     }
 
+    DPRINT("Exiting thread.\n");
     pthread_exit(NULL);
 }
 
@@ -148,14 +153,16 @@ int main(int argc, char const *argv[])
     }
 
     // Create threads for pool
+    DPRINT("Creating threads.\n");
     for (int i=0; i<N_THREADS; ++i)
     {
-        if(pthread_create(&threads[i], NULL, serve_http, NULL))
+        if (pthread_create(&threads[i], NULL, serve_http, NULL))
         {
             perror("Failed to create thread");
             exit(EXIT_FAILURE);
         }
     }
+    DPRINT("Threads created.\n");
 
     // Main loop
     while (run_status)
@@ -173,11 +180,13 @@ int main(int argc, char const *argv[])
         }
         DPRINT("Successfully connected to client.\n");
 
-        // Add connection fd to queue
+        // Add connection fd to queue (if queue full connections lost)
         queue_push(&s_queue, client_socket_fd);
+        DPRINT("Pushed connection to queue (size %u).\n", s_queue.size);
     }
 
     // Join all threads
+    DPRINT("Joining all threads.\n");
     for (int i=0; i<N_THREADS; ++i)
     {
         if(pthread_join(threads[i], NULL))
@@ -186,6 +195,7 @@ int main(int argc, char const *argv[])
             exit(EXIT_FAILURE);
         }
     }
+    DPRINT("Threads joined.\n");
 
     // Attempt to close server socket fd
     if (close(socket_fd) < 0)

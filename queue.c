@@ -12,9 +12,9 @@ pthread_mutex_t q_lock;
 
 void queue_create(queue_t* queue, unsigned int size)
 {
-    if (queue->data = malloc(sizeof(unsigned int) * size))
+    if ((queue->data = malloc(sizeof(unsigned int) * size)) == NULL)
     {
-        fprintf(stderr, "Failed to malloc queue data.");
+        fprintf(stderr, "Failed to malloc queue data.\n");
         exit(EXIT_FAILURE);
     }
     queue->capacity = size;
@@ -44,7 +44,11 @@ int queue_push(queue_t* queue, int data)
     pthread_mutex_lock(&q_lock);
 
     if (queue->size == queue->capacity)
+    {
+        // Release lock
+        pthread_mutex_unlock(&q_lock);
         return -1;
+    }
 
     // Increase size
     queue->size += 1;
@@ -71,7 +75,11 @@ int queue_pop(queue_t* queue)
     pthread_mutex_lock(&q_lock);
 
     if (queue->size == 0)
+    {
+        // Release lock
+        pthread_mutex_unlock(&q_lock);
         return -1;
+    }
 
     // Decrement size
     queue->size -= 1;
