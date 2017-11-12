@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
+#include <linux/limits.h>
 #include "queue.h"
 
 // Port to bind socket to
@@ -49,7 +50,8 @@ void intHandler(int dummy)
 void* serve_http(void* unused)
 {
     char rx_buffer[RX_BUF_SIZE],
-         tx_buffer[TX_BUF_SIZE];
+         tx_buffer[TX_BUF_SIZE],
+         path[PATH_MAX]; // defined in linux/limits.h
     int client_socket_fd, rx_size, tx_size;
     char *pcha, *pchb, *req_typ, *req_file, *req_prot, *body;
     FILE *f;
@@ -96,15 +98,10 @@ void* serve_http(void* unused)
                 }
             }
         }
-        DPRINT("Parsed contents:%s %s %s\n", req_typ, req_file, req_prot);
-
-        // Treat empty string as request for index page
-        if (strcmp(req_file, "") == 0)
-            req_file = "html/index.html";
-        else
-            req_file = strcat("html/", req_file);
+        DPRINT("Parsed contents as: %s %s %s\n", req_typ, req_file, req_prot);
 
         if (strcmp(req_typ, "GET") != 0 ||
+            req_file == NULL ||
             (strcmp(req_prot, "HTTP/1.0") != 0 &&
              strcmp(req_prot, "HTTP/1.1") != 0))
         {
@@ -113,32 +110,44 @@ void* serve_http(void* unused)
             body = "<html><h1>405 Method Not Allowed</h1></html>";
             sprintf(tx_buffer, http_tmplt, "405 Method Not Allowed\nAllow: GET",
                     strlen(body), body);
-        } else if (access(req_file, F_OK) == -1)
+        } else
         {
-            DPRINT("404.\n");
-            // Respond to unknown pages/files with 404 Not Found
-            body = "<html><h1>404 Not Found</h1></html>";
-            sprintf(tx_buffer, http_tmplt, "404 Not Found", strlen(body), body);
-        }
-            // Respond to private pages/files with 403 Forbidden
-        else
-        {
-            DPRINT("200.\n");
-            // Otherwise respond with 200 OK w/ HTML file contents
-            f = fopen(req_file, "rb");
-            fseek(f, 0, SEEK_END);
-            f_size = ftell(f);
-            rewind(f);
-            if ((body = malloc(f_size+1)) == NULL)
+            // Treat empty string as request for index page, or prepend html directory
+            DPRINT("%s %d", req_file, strlen(req_file));
+            if (strcmp(req_file, "") == 0)
+                strcpy(path, "html/index.html");
+            else
             {
-                perror("Failed to malloc body");
-                exit(EXIT_FAILURE);
+                strcpy(path, "html/");
+                strcat(path, req_file);
             }
-            fread(body, f_size, 1, f);
-            fclose(f);
-            body[f_size] = '\0';
-            sprintf(tx_buffer, http_tmplt, "200 OK", strlen(body), body);
-            free(body);
+            if (access(path, F_OK) == -1)
+            {
+                DPRINT("404.\n");
+                // Respond to unknown pages/files with 404 Not Found
+                body = "<html><h1>404 Not Found</h1></html>";
+                sprintf(tx_buffer, http_tmplt, "404 Not Found", strlen(body), body);
+            }
+                // Respond to private pages/files with 403 Forbidden
+            else
+            {
+                DPRINT("200.\n");
+                // Otherwise respond with 200 OK w/ HTML file contents
+                f = fopen(path, "rb");
+                fseek(f, 0, SEEK_END);
+                f_size = ftell(f);
+                rewind(f);
+                if ((body = malloc(f_size+1)) == NULL)
+                {
+                    perror("Failed to malloc body");
+                    exit(EXIT_FAILURE);
+                }
+                fread(body, f_size, 1, f);
+                fclose(f);
+                body[f_size] = '\0';
+                sprintf(tx_buffer, http_tmplt, "200 OK", strlen(body), body);
+                free(body);
+            }
         }
 
         /* Send message to socket
