@@ -1,8 +1,13 @@
-/* 
- *
+/* A simple HTTP server with the following features:
+ *     - Supports GET Requests
+ *     - Multi-threaded
+ *     - Returns 403, 404, 405, and 200 messages
+ * Author: Zach Carmichael
  */
 #include <stdio.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -10,19 +15,23 @@
 #include <signal.h>
 #include <string.h>
 #include <linux/limits.h>
+#include <errno.h>
+#include <pwd.h>
 #include "queue.h"
 
 // Port to bind socket to
 #define PORT          (8008)
 // Maximum queue length of pending connections
-#define BACKLOG       (5)
+#define BACKLOG       (50)
 // Receive/transmit buffer size
 #define RX_BUF_SIZE   (2048)
 #define TX_BUF_SIZE   (2048)
 // The number of threads (child servers)
-#define N_THREADS     (5)
+#define N_THREADS     (100)
 // Maximum thread pool task queue size
-#define MAX_TASK_SIZE (10)
+#define MAX_TASK_SIZE (20000)
+// User that files need to belong to (otherwise 403)
+#define SERVER_USER   ("zach")
 // Debug printing macro (var arguments)
 #ifdef DEBUG
 #define DPRINT(...) {fprintf(stderr, __VA_ARGS__);}
@@ -47,6 +56,19 @@ void intHandler(int dummy)
 }
 
 
+int valid_user(char* f_name)
+{
+    struct stat statbuf;
+    struct passwd* pwd;
+
+    // Retrieve file information using stat (file guaranteed to exist if called from serve_http)
+    stat(f_name, &statbuf);
+    pwd = getpwuid(statbuf.st_uid);
+
+    return strcmp(pwd->pw_name, SERVER_USER) == 0;
+}
+
+
 void* serve_http(void* unused)
 {
     char rx_buffer[RX_BUF_SIZE],
@@ -63,7 +85,10 @@ void* serve_http(void* unused)
     {
         // Check if work to do (requests available to process)
         if ((client_socket_fd = queue_pop(&s_queue)) == -1)
+        {
+            sleep(1);
             continue;
+        }
 
         DPRINT("Processing HTTP request.\n");
 
@@ -113,12 +138,11 @@ void* serve_http(void* unused)
         } else
         {
             // Treat empty string as request for index page, or prepend html directory
-            DPRINT("%s %d", req_file, strlen(req_file));
-            if (strcmp(req_file, "") == 0)
+            if (strcmp(req_file, "/") == 0)
                 strcpy(path, "html/index.html");
             else
             {
-                strcpy(path, "html/");
+                strcpy(path, "html");
                 strcat(path, req_file);
             }
             if (access(path, F_OK) == -1)
@@ -127,8 +151,12 @@ void* serve_http(void* unused)
                 // Respond to unknown pages/files with 404 Not Found
                 body = "<html><h1>404 Not Found</h1></html>";
                 sprintf(tx_buffer, http_tmplt, "404 Not Found", strlen(body), body);
-            }
+            } else if (!valid_user(path))
+            {
                 // Respond to private pages/files with 403 Forbidden
+                body = "<html><h1>403 Forbidden</h1></html>";
+                sprintf(tx_buffer, http_tmplt, "403 Forbidden", strlen(body), body);
+            }
             else
             {
                 DPRINT("200.\n");
@@ -260,6 +288,8 @@ int main(int argc, char const *argv[])
         result = select(socket_fd+1, &readfds, NULL, NULL, NULL);
         if (result < 0)
         {
+            if (errno == EINTR)
+                break;
             perror("Failed to select client_socket_fd");
             exit(EXIT_FAILURE);
         } else if (result == 0)
